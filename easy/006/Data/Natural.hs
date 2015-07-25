@@ -6,7 +6,10 @@ toNatural :: Integer -> Natural
 toNatural 0         = O
 toNatural n | n > 0 = S $ toNatural (n - 1)
 
-fromNatural :: Natural -> Integer
+fromNatural' :: Natural -> Integer
+fromNatural' = fromNatural
+
+fromNatural :: Num a => Natural -> a
 fromNatural O     = 0
 fromNatural (S n) = 1 + fromNatural n
 

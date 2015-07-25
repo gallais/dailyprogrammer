@@ -1,43 +1,52 @@
-{-# OPTIONS -Wall #-}
-
+-- https://www.reddit.com/r/dailyprogrammer/comments/pp53w/2142012_challenge_6_easy/
 module Main where
 
-import Data.Ratio
 import Data.Natural
+import Data.Ratio
+import Data.Rational
+import Data.CauchyReal as CR
+
+-- Power Series
+---------------------
 
 type PowerSeries = Natural -> Rational
 
+unfold :: (s -> (a, s)) -> s -> [a]
+unfold next seed = a : unfold next s
+  where (a, s) = next seed
+
+partialSums :: PowerSeries -> Rational -> CauchyReal
+partialSums ps x = unfold next (0, O) where
+  next (v, n) = let w = v + x ^ (fromNatural' n) * ps n
+                in w `seq` (w, (w, S n))
+
+approximate :: PowerSeries -> Rational -> Natural -> Rational
+approximate ps x n = CR.approximate n $ partialSums ps x
+
+-- Arctan
+---------------------
+
 atanPS :: PowerSeries
-atanPS = maybe 0 (\ n -> ((- 1) ^ fromNatural n) % (2 * fromNatural n + 1)) . oddM
+atanPS n = ((- 1) ^ (fromNatural' n)) % (2 * fromNatural n + 1)
 
-sumPS :: PowerSeries -> Rational -> Natural -> Rational
-sumPS _  _ O     = 0
-sumPS ps x (S n) = x ^ (fromNatural n) * ps n + sumPS ps x n
+arctan :: Rational -> CauchyReal
+arctan x = fmap (x *) $ partialSums atanPS (x * x)
 
-arctan :: Rational -> Natural -> Rational
-arctan = sumPS atanPS
+-- Pi
+---------------------
 
-myPi :: Natural -> Rational
-myPi = (4 *) . arctan 1
+-- Awfully slow definition of Pi
+myPi :: CauchyReal
+myPi = fmap (4 *) $ arctan 1
 
-machin :: Natural -> Rational
-machin n = (4 *) $ 4 * arctan (1 % 5) n - arctan (1 % 239) n
+-- Machin's formula
+machin :: CauchyReal
+machin = zipWith (\ a b -> 4 * (4 * a - b)) (arctan (1 % 5)) (arctan (1 % 239))
 
-displayRational :: Natural -> Rational -> String
-displayRational n r = show i ++ "." ++ decimals d q n
-  where
-    (i, d) = p `quotRem` q
-    p      = numerator r
-    q      = denominator r
-
-    decimals :: Integer -> Integer -> Natural -> String
-    decimals _ _ O     = ""
-    decimals d q (S n) = show i' ++ decimals d' q n
-      where (i' , d') = (10 * d) `quotRem` q
 
 main :: IO ()
 main = do
-  let threshold   = toNatural 30
-  let numberTerms = toNatural 50
-  putStrLn $ displayRational threshold $ machin numberTerms
-  putStrLn $ displayRational threshold $ myPi numberTerms
+  let threshold2 = toNatural 2
+  let threshold30 = toNatural 30
+  putStrLn $ CR.display threshold30 machin
+  putStrLn $ CR.display threshold2 myPi
