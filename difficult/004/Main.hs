@@ -4,63 +4,65 @@ module Main where
 
 import Control.Monad
 import Data.List
+import Data.Tuple
+import Language.Arithmetic
 
--- A small expression language with its evaluator
-
-data BinOp = Add | Sub | Mul | Div
-  deriving (Bounded, Enum, Eq)
-data Arith = Lift Int | Op BinOp Arith Arith
-
-instance Eq Arith where
-  Lift k      == Lift l         = k == l
-  (Op op a b) == (Op op' a' b') =
-    op == op' && ((a == a' && b == b')
-              ||  (op `elem` [Add, Mul] && a == b' && b == a'))
-
-instance Show BinOp where
-  show Add = "+"
-  show Sub = "-"
-  show Mul = "*"
-  show Div = "/"
-
-instance Show Arith where
-  show (Lift k)    = show k
-  show (Op op a b) = show a ++ show op ++ show b
-
-evalBinOp :: BinOp -> Int -> Int -> Maybe Int
-evalBinOp Add a b = return $ a + b
-evalBinOp Sub a b = return $ a - b
-evalBinOp Mul a b = return $ a * b
-evalBinOp Div a b = do
-  guard (b /= 0)
-  guard (a `mod` b == 0)
-  return (a `quot` b)
-
-evalArith :: Arith -> Maybe Int
-evalArith (Lift k)      = Just k
-evalArith (Op op ta tb) = do
-  a <- evalArith ta
-  b <- evalArith tb
-  evalBinOp op a b
-
-
--- And now we try to find combinations of triples
-
+-- The ability to select a given number of values
+-- from a list. All in the non-determinism monad
 select :: [a] -> [(a, [a])]
 select []       = []
 select (x : xs) = (x, xs) : fmap (fmap (x:)) (select xs)
 
-three :: [Int] -> [(Arith,Arith)]
-three xs = do
-  (a, ys) <- select xs
-  (b, zs) <- select ys
-  (c, _)  <- select zs
-  op      <- [minBound..maxBound]
-  let left = Op op (Lift a) (Lift b)
-  guard (evalArith left == Just c)
-  return (left, Lift c)
+selects :: Int -> [a] -> [[a]]
+selects 0 xs = return []
+selects k xs = do
+  (a , ys) <- select xs
+  fmap (a :) $ selects (k - 1) ys
+
+-- The ability to grow an arithmetic expression
+-- at any leaf using arbitrary operations.
+grow :: Int -> Arith -> [Arith]
+grow l = go where
+  andComm :: BinOp -> [(a,a)] -> [(a,a)]
+  andComm op as =
+    if op `elem` [Add, Mul] then as
+    else as ++ fmap swap as
+
+  go a@(Lift k) = do
+    op     <- [minBound..maxBound]
+    (e, f) <- andComm op [(a, Lift l)]
+    return $ Op op e f
+  go (Op op a b) = do
+    fmap (\ a' -> Op op a' b) (go a)
+    ++ fmap (\ b' -> Op op a b') (go b)
+
+-- Growing multiple times
+grows :: [Int] -> Arith -> [Arith]
+grows ks a = foldr (concatMap . grow) [a] ks
+
+-- Selecting interesting equations by growing
+-- one k times and keeping it only if it is
+-- equal to a given value
+ariths :: Int -> [Int] -> [(Arith, Int)]
+ariths k ks = do
+  (e : f : gs) <- selects k ks
+  a <- grows gs (Lift e)
+  guard (evalArith a == Just f)
+  return (a, f)
+
+displayEquation :: Arith -> Int -> String
+displayEquation a b = show a ++ " = " ++ show b
 
 main :: IO ()
 main = do
   xs <- fmap read . words . filter (/= ',') <$> getLine
-  mapM_ (uncurry $ \ a b -> putStrLn $ show a ++ " = " ++ show b) $ nub $ three xs
+  let threes  = nub $ ariths 3 xs
+  let fours   = nub $ ariths 4 xs
+  let allvals = nub $ ariths (length xs) xs
+  mapM_ (uncurry $ \ name equations -> do
+                     putStrLn ("*** " ++ name)
+                     mapM_ (putStrLn . uncurry displayEquation) equations)
+     [ ("threes", threes)
+     , ("fours", fours)
+     , ("allvals", allvals)
+     ]
